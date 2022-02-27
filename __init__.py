@@ -790,7 +790,6 @@ def create_model_from_data(names,models,elements,vert_definitions,fx_files,textu
     
     for vs in vertex_streams:
         vs_vert_definition = ''.join([to_hex(definition['type']) for definition in vs['definition']])
-        print(vs_vert_definition)
         defined_vertex_streams[vs_vert_definition] = vs
     
     objects = [None] * len(elements)
@@ -844,7 +843,6 @@ def create_model_from_data(names,models,elements,vert_definitions,fx_files,textu
         face_start = mesh['data1'][0]['face_offset']
         face_count = mesh['data1'][0]['face_count'] 
         
-        print((face_start, face_count))
         
         face_end = face_start + face_count 
         
@@ -866,18 +864,28 @@ def create_model_from_data(names,models,elements,vert_definitions,fx_files,textu
             uv_2 = bm.loops.layers.uv.new('UV2')
         
         def create_face(v1, v2, v3):
-            new_face = bm.faces.new([v1, v2, v3])
-            new_face.material_index = material_index
+            try:
+                new_face = bm.faces.new([v1, v2, v3])
+                new_face.material_index = material_index
             
-            if len(vertex_colors) > 0:  
-                for loop in new_face.loops:
-                    uv = loop.vert[vertex_colors[0]]
-                    loop[uv_1].uv[0] = uv[0]
-                    loop[uv_1].uv[1] = 1-uv[2]
-                    loop[uv_2].uv[0] = uv[1]
-                    loop[uv_2].uv[1] = 1-uv[3]
+                if len(vertex_colors) > 0:  
+                    for loop in new_face.loops:
+                        uv = loop.vert[vertex_colors[0]]
+                        loop[uv_1].uv[0] = uv[0]
+                        loop[uv_1].uv[1] = 1-uv[2]
+                        loop[uv_2].uv[0] = uv[1]
+                        loop[uv_2].uv[1] = 1-uv[3]
             
-            faces.append(new_face)
+                faces.append(new_face)
+            except:
+                print("Duplicate face:")
+                print("|\tMeshDefinition: {0}".format(string_definition))
+                print("|\tMeshIndex: {0}".format(meshes.index(mesh)))
+                print("|\tVertStream: {0}".format(vertex_streams.index(vert_stream)))
+                print("|\tFaceStream: {0}".format(face_streams.index(face_stream)))
+                print("|\tV1: {0}".format(v1.co))
+                print("|\tV2: {0}".format(v2.co))
+                print("|\tV3: {0}".format(v3.co))
         
         if mesh['face_type'] == 0:
             for i in range(face_start, face_end, 3):
