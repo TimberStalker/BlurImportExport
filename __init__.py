@@ -117,7 +117,19 @@ def to_hex(inString) -> str:
 #---------------------------------------------------------------------------------------------------
 #---------------------------------------------------------------------------------------------------
 #---------------------------------------------------------------------------------------------------
-def read_cpmodel_data(self, context, filepath, use_some_setting):
+def import_cpmodel(self, context, filepath, swap_faces):
+    
+    model = read_cpmodel_data(self, filepath)
+    
+    create_model_from_data(model, swap_faces)
+    
+    for object in bpy.data.objects:
+        if not object.parent == None:
+            object.matrix_parent_inverse = object.parent.matrix_world.inverted()
+        
+    return {'FINISHED'}
+    
+def read_cpmodel_data(self, filepath):
     directory = bpy.path.abspath("//")
     saved = directory != ''
     if not saved:
@@ -126,6 +138,8 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
         os.makedirs(directory+"textures")
     
     reader = Reader(filepath)
+    
+    model = {}
     
     r_pos = reader.pos
     r_int = reader.read_int
@@ -136,34 +150,37 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
     r_half = reader.read_half
     r_matrix = reader.read_matrix
     r_ad = reader.advance
-    def r_id():
-        return (r_float(), r_float(), r_float(), r_float(), r_float(), r_float())
+    
+    def r_bb():
+        return ({'x':r_float(), 'z':r_float(), 'y':r_float()}, {'x':r_float(), 'z':r_float(), 'y':r_float()})
     def r_sec(len, clip):
-        return {'title':r_string(len, clip), 'start':r_pos()-len, 'length':r_int(), 'end':r_int()}
+        sections.append({'title':r_string(len, clip), 'start':r_pos()-len, 'length':r_int(), 'end':r_int()})
     def print_sec(sec):
         print('{0}: 0x{1} [0x{2}]'.format(sec['title'], to_hex(sec['start']), to_hex(sec['length'])))
+    def bb_toString(bbox):
+        return '({:.2f}, {:.2f}, {:.2f}), ({:.2f}, {:.2f}, {:.2f})'.format(bbox[0]['x'], bbox[0]['y'], bbox[0]['z'], bbox[1]['x'], bbox[1]['y'], bbox[1]['z'])
     
     sections = []
     
-    sections.append((r_string(4), 0, 0)) #0
+    sections.append((r_string(4), 0, 0)) #..CP
     
-    sections.append(r_sec(8, 3)) #1
+    r_sec(8, 3) #Model
     
-    sections.append(r_sec(8, 2)) #2
+    r_sec(8, 2) #Header
     r_ad()
     
-    sections.append(r_sec(8, 2)) #3
+    r_sec(8, 2) #MdlDat
     
-    sections.append(r_sec(8, 2)) #4
-    r_ad(4)
+    r_sec(8, 2) #Header
+    r_ad()
     
     
     models = [0] * r_int()
     elements = [0] * r_int()
     r_ad()
-    model_id = r_id()
+    model_bb = r_bb()
     
-    sections.append(r_sec(8, 2)) #5
+    r_sec(8, 2) #5
     
     nameOffsets = []
     for i in range(r_int() + 1):
@@ -174,14 +191,15 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
     
     [print('|({1})  {0}'.format(name, i)) for (i,name) in enumerate(names)]
     
+    model['names'] = names
     
-    sections.append(r_sec(8, 2)) #6
+    r_sec(8, 2) #Models
     
     print_sec(sections[-1])
     for i in range(len(models)):
         
         matrix = r_matrix()
-        id = r_id()
+        bbox = r_bb()
         
         name_index = r_int()
         name = names[name_index]
@@ -195,8 +213,8 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
         
         model = {}
         model['matrix'] = matrix
-        model['id'] = id
         model['name'] = name
+        model['bounding_box'] = bbox
         model['model_index'] = model_index
         model['element_count'] = child_element_count
         model['hierarchy_index'] = hierarchy_index
@@ -208,13 +226,13 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
         print('|\tPosition :' + str(matrix['position']))
         print('|\tRotation :' + str(matrix['rotation']))
         print('|\tScale :' + str(matrix['scale']))
+        print('|\tBounding Box :' + bb_toString(bbox))
         print('|\tChild Count :' + str(child_element_count))
-        print('|\tID :' + str(id[0:3]))
-        print('|\t   :' + str(id[3:6]))
         print('|\tUnknown :' + str((ued4, ued5, ued6)))
         print('|')
-        
-    sections.append(r_sec(8, 1)) #7
+    
+    model['models'] = models
+    r_sec(8, 1) #Elements
     print()
     print_sec(sections[-1])
     for i in range(len(elements)):
@@ -222,7 +240,7 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
         model_index = r_int()
          
         matrix = r_matrix()
-        id = r_id()
+        bbox = r_bb()
          
         name_index = r_int()
         name = names[name_index]
@@ -238,7 +256,7 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
         
         element = {}
         element['matrix'] = matrix
-        element['id'] = id
+        element['bounding_box'] = bbox
         element['name'] = name
         if parent_index >= 0:
             element['parent'] = parent_index
@@ -249,8 +267,7 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
         print('|\tPosition :' + str(matrix['position']))
         print('|\tRotation :' + str(matrix['rotation']))
         print('|\tScale :' + str(matrix['scale']))
-        print('|\tID :' + str(id[0:3]))
-        print('|\t   :' + str(id[3:6]))
+        print('|\tBounding Box :' + bb_toString(bbox))
         sayParent = ""
         if 'parent' in element and not elements[parent_index] == 0:
             sayParent = elements[parent_index]['name']
@@ -260,20 +277,21 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
         print('|\tUnknown2 :' + str((ued6_0, ued6_1)))
         print('|')
     
-    sections.append(r_sec(8, 2)) #8 Constr
+    model['elements'] = elements
+    r_sec(8, 2) #8 Constr
     print_sec(sections[-1])
     
-    sections.append(r_sec(8, 2)) #9 Render
+    r_sec(8, 2) #9 Render
     print_sec(sections[-1])
     
-    sections.append(r_sec(8, 2)) #10 Render
+    r_sec(8, 2) #10 Render
     print_sec(sections[-1])
     
-    sections.append(r_sec(8, 2)) #11 Header
+    r_sec(8, 2) #11 Header
     print_sec(sections[-1])
     r_ad()
     
-    sections.append(r_sec(8, 3)) #12 Scene
+    r_sec(8, 3) #12 Scene
     print_sec(sections[-1])
     
     r_ad() #ARCH
@@ -339,6 +357,9 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
             definition['sub_channel'] = sub_channel
             data[j] = definition
         vert_definitions[i] = data
+    
+    model['vert_definitions'] = vert_definitions
+    
     r_ad()
     print('\nFX Files 0x'+to_hex(r_pos()))
     fx_files = [0] * r_int()
@@ -351,6 +372,7 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
         
         fx_files[i] = file_name
     
+    model['fx_files'] = fx_files
     r_ad()
     r_ad() #52410000
     r_ad() #52410000
@@ -542,10 +564,12 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
         stream['start'] = start
         stream['definition'] = vert_stream_definitions
         vertex_streams[i] = stream
-        
+    
+    model['vertex_streams'] = vertex_streams
     r_ad()
     print('\nFace Streams 0x' + to_hex(r_pos()))
     face_streams = [0] * r_int()
+    
     for i in range(len(face_streams)):
         r_ad(1) #02
         r_ad() #52410100
@@ -586,6 +610,8 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
     
     r_ad() #52410000
     
+    model['face_streams'] = face_streams
+    
     print('\nRendering Data 0x' + to_hex(r_pos()))
     rendering_data = [0] * r_int()
     for i in  range(len(rendering_data)):
@@ -611,7 +637,7 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
         
         r_ad()
         
-        id = r_id()
+        bbox = r_bb()
         urdf1 = r_float()
         urdf2 = r_float()
         
@@ -626,8 +652,7 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
         print('|\tModel :{0}'.format(modelName))
         print('|\tUnknown1 :{0}'.format(udat))
         print('|\tUnknown2 :{0} {1} {2} {3}'.format(urd1, urd2, urd3, urd4))
-        print('|\tID :' + str(id[0:3]))
-        print('|\t   :' + str(id[3:6]))
+        print('|\tBounding Box :' + bb_toString(bbox))
         print('|\tUnknown3 :{0} {1}'.format(urdf1, urdf2))
         print('|\tUnknown4 :{0}'.format(urd4))
         print('|')
@@ -638,6 +663,8 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
         r_ad() #00000000
         r_ad() #52410000
         r_ad() #00000000
+    
+    model['rendering_data'] = rendering_data
     
     r_ad() #52410000
     r_ad() #00000000
@@ -688,6 +715,8 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
         print('|\tOther Params :{0}'.format(other_params))
         print('|')
         r_ad(6)
+    
+    model['shaders'] = shaders
     
     r_ad()
     r_ad()
@@ -757,6 +786,7 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
         mesh['data1'] = mesh_data_1
         mesh['data2'] = mesh_data_2
         mesh['material_index'] = material_index
+        mesh['index'] = i
         meshes[i] = mesh
         
         print('|Mesh {0}'.format(i))
@@ -773,35 +803,41 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
         print('|\tData2 :')
         [print('|\t\tUnknown1 :({0})-({1}) Verts :({2})-({3}) Unknown :({4})-({5})'.format(dats['u1'], dats['u2'], dats['vOffset'], dats['u4'], dats['u5'], dats['u6'])) for dats in mesh_data_2]
         print('|')
-        
-    create_model_from_data(names,models,elements,vert_definitions,fx_files,textures,vertex_streams,face_streams,rendering_data,shaders,meshes)
     
-        
-    return {'FINISHED'}
+    model['meshes'] = meshes
+    
+    #bpy.context.scene['last_model'] = model
+    
+    return model
 
-def create_model_from_data(names,models,elements,vert_definitions,fx_files,textures,vertex_streams,face_streams,rendering_data,shaders,meshes):
+def create_model_from_data(model, swap_faces):
     
     materials = []
-    for fx_name in fx_files:
-        mat = bpy.data.materials.new(fx_name.split('.')[0])
+    for fx_name in model['fx_files']:
+        fx = fx_name.split('.')[0]
+        mat = bpy.data.materials.get(fx)
+        if(mat is None):
+            mat = bpy.data.materials.new(fx)
         materials.append(mat)
     
     defined_vertex_streams = {}
     
-    for vs in vertex_streams:
+    for vs in model['vertex_streams']:
         vs_vert_definition = ''.join([to_hex(definition['type']) for definition in vs['definition']])
         defined_vertex_streams[vs_vert_definition] = vs
     
-    objects = [None] * len(elements)
+    objects = [None] * len(model['elements'])
     
-    for mesh in meshes:
-        definition = [item for item in vert_definitions[mesh['definition']] if item['prefix'] == 0]
+    for mesh in model['meshes']:
+        definition = [item for item in model['vert_definitions'][mesh['definition']] if item['prefix'] == 0]
         
         string_definition = ''.join([to_hex(item['type']) for item in definition])
         vert_stream = defined_vertex_streams[string_definition]
         
-        face_stream = face_streams[mesh['face_stream_index']]
-        
+        if swap_faces == True: 
+            face_stream = model['face_streams'][1-mesh['face_stream_index']]
+        else:
+            face_stream = model['face_streams'][mesh['face_stream_index']]    
         
         
         if objects[mesh['object_index']] == None:
@@ -879,14 +915,16 @@ def create_model_from_data(names,models,elements,vert_definitions,fx_files,textu
                 faces.append(new_face)
             except:
                 print("Duplicate face:")
-                print("|\tMeshDefinition: {0}".format(string_definition))
-                print("|\tMeshIndex: {0}".format(meshes.index(mesh)))
-                print("|\tVertStream: {0}".format(vertex_streams.index(vert_stream)))
-                print("|\tFaceStream: {0}".format(face_streams.index(face_stream)))
-                print("|\tV1: {0}".format(v1.co))
-                print("|\tV2: {0}".format(v2.co))
-                print("|\tV3: {0}".format(v3.co))
+                #print("|\tMeshDefinition: {0}".format(string_definition))
+                #print("|\tMeshIndex: {0}".format(meshes.index(mesh)))
+                #print("|\tVertStream: {0}".format(vertex_streams.index(vert_stream)))
+                #print("|\tFaceStream: {0}".format(face_streams.index(face_stream)))
+                #print("|\tV1: {0}".format(v1.co))
+                #print("|\tV2: {0}".format(v2.co))
+                #print("|\tV3: {0}".format(v3.co))
         
+        print("Creating faces for mesh {}".format(mesh["index"]))
+                
         if mesh['face_type'] == 0:
             for i in range(face_start, face_end, 3):
                 i1 = stream_faces[i] - vert_offset
@@ -910,7 +948,7 @@ def create_model_from_data(names,models,elements,vert_definitions,fx_files,textu
     
     linked_objects = []
     for i, object in enumerate(objects):
-        element = elements[i]
+        element = model['elements'][i]
         
         if not object == None:
             bm = object['bm']
@@ -936,10 +974,6 @@ def create_model_from_data(names,models,elements,vert_definitions,fx_files,textu
         
         bpy.context.collection.objects.link(linked_object)
         linked_objects.append(linked_object)
-    
-    for object in linked_objects:
-        if not object.parent == None:
-            object.matrix_parent_inverse = object.parent.matrix_world.inverted()
 
 #---------------------------------------------------------------------------------------------------
 #---------------------------------------------------------------------------------------------------
@@ -947,19 +981,10 @@ def create_model_from_data(names,models,elements,vert_definitions,fx_files,textu
 #---------------------------------------------------------------------------------------------------
 #---------------------------------------------------------------------------------------------------
 
-
-
-
-
-
-
-
-
-
-class ImportSomeData(Operator, ImportHelper):
+class ImportCPModelData(Operator, ImportHelper):
     """This appears in the tooltip of the operator and in the generated docs"""
-    bl_idname = "import_test.some_data"
-    bl_label = "Import Some Data"
+    bl_idname = "import_cpmodel.data"
+    bl_label = "Import CPModel"
 
     # ImportHelper mixin class uses this
     filename_ext = ".model"
@@ -970,42 +995,28 @@ class ImportSomeData(Operator, ImportHelper):
         maxlen=255,  # Max internal buffer length, longer would be clamped.
     )
 
-    # List of operator properties, the attributes will be assigned
-    # to the class instance from the operator settings before calling.
-    use_setting: BoolProperty(
-        name="Example Boolean",
-        description="Example Tooltip",
-        default=True,
-    )
-
-    type: EnumProperty(
-        name="Example Enum",
-        description="Choose between two items",
-        items=(
-            ('OPT_A', "First Option", "Description one"),
-            ('OPT_B', "Second Option", "Description two"),
-        ),
-        default='OPT_A',
+    swap_faces: BoolProperty(
+        name="Swap Faces",
+        description="Some models have faces stored strangely. If the import doesent work the first time, try this.",
+        default=False,
     )
 
     def execute(self, context):
-        return read_cpmodel_data(self, context, self.filepath, self.use_setting)
+        return import_cpmodel(self, context, self.filepath, self.swap_faces)
 
 def menu_func_import(self, context):
-    self.layout.operator(ImportSomeData.bl_idname, text="Import CPModel (.model)")
+    self.layout.operator(ImportCPModelData.bl_idname, text="Import CPModel (.model)")
 
 
 def register():
-    bpy.utils.register_class(ImportSomeData)
+    bpy.utils.register_class(ImportCPModelData)
     #bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
 
 
 def unregister():
-    bpy.utils.unregister_class(ImportSomeData)
-    #bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
+    bpy.utils.unregister_class(ImportCPModelData)
+    bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
 
 if __name__ == "__main__":
     register()
-
-    # test call
-    bpy.ops.import_test.some_data('INVOKE_DEFAULT')
+    bpy.ops.import_cpmodel.data('INVOKE_DEFAULT')
