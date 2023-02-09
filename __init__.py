@@ -27,17 +27,17 @@ class Reader:
         return hex(self.pointer)
     def pos(self) -> int:    
         return self.pointer
-
+    
     def read(self, amount) -> bytes:
         end = self.pointer+amount
         temp = self.data[self.pointer:end]
         self.pointer = end
         return temp
-
+    
     def read_byte(self) -> int:
         #"""Read an integer from the file and advance the pointer 4 bytes"""
         return int.from_bytes(self.read(1), "little")
-
+    
     def read_int(self, sign="True") -> int:
         #"""Read an integer from the file and advance the pointer 4 bytes"""
         return int.from_bytes(self.read(4), "little", signed=sign)
@@ -78,17 +78,17 @@ class Reader:
         shear4 = self.read_float() #1
         shear5 = self.read_float() #1
         shear6 = self.read_float() #1
-
+        
         scalez = self.read_float() #1
-
+        
         rotationx = math.atan2(shear6, scaley)
         rotationy = math.atan2(-shear5, math.sqrt(shear6**2 + scaley**2))
         rotationz = math.atan2(shear3, scalex)
-
+        
         positionx = self.read_float()
         positiony = self.read_float()
         positionz = self.read_float()
-
+        
         return {'position':[positionx, positionz, positiony], 'scale':[scalex, scalez, scaley], 'rotation':[rotationx, rotationz, rotationy]}
     
 
@@ -139,34 +139,31 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
     def r_id():
         return (r_float(), r_float(), r_float(), r_float(), r_float(), r_float())
     def r_sec(len, clip):
-        return {'title':r_string(len, clip), 'start':r_pos()-len, 'length':r_int()}
+        return {'title':r_string(len, clip), 'start':r_pos()-len, 'length':r_int(), 'end':r_int()}
     def print_sec(sec):
         print('{0}: 0x{1} [0x{2}]'.format(sec['title'], to_hex(sec['start']), to_hex(sec['length'])))
-
+    
     sections = []
-
+    
     sections.append((r_string(4), 0, 0)) #0
-
+    
     sections.append(r_sec(8, 3)) #1
-    r_ad(4)
-
+    
     sections.append(r_sec(8, 2)) #2
-    r_ad(8)
-
+    r_ad()
+    
     sections.append(r_sec(8, 2)) #3
-    r_ad(4)
-   
+    
     sections.append(r_sec(8, 2)) #4
-    r_ad(8)
-   
-
+    r_ad(4)
+    
+    
     models = [0] * r_int()
     elements = [0] * r_int()
     r_ad()
     model_id = r_id()
     
     sections.append(r_sec(8, 2)) #5
-    r_ad(4)
     
     nameOffsets = []
     for i in range(r_int() + 1):
@@ -174,11 +171,11 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
     
     print_sec(sections[-1])
     names = [r_string(nameOffsets[i]-nameOffsets[i-1], 1) for i in range(1, len(nameOffsets))]
-    [print('|({1})  {0}'.format(name, i-1)) for name in names]
+    
+    [print('|({1})  {0}'.format(name, i)) for (i,name) in enumerate(names)]
     
     
     sections.append(r_sec(8, 2)) #6
-    r_ad()
     
     print_sec(sections[-1])
     for i in range(len(models)):
@@ -189,9 +186,9 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
         name_index = r_int()
         name = names[name_index]
         
-        ued1 = r_int()
-        ued2 = r_int()
-        ued3 = r_int()
+        model_index = r_int()
+        child_element_count = r_int()
+        hierarchy_index = r_int()
         ued4 = r_int()
         ued5 = r_int()
         ued6 = r_int()
@@ -200,6 +197,10 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
         model['matrix'] = matrix
         model['id'] = id
         model['name'] = name
+        model['model_index'] = model_index
+        model['element_count'] = child_element_count
+        model['hierarchy_index'] = hierarchy_index
+        
         model['elements'] = {}
         models[i] = model
         
@@ -207,17 +208,16 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
         print('|\tPosition :' + str(matrix['position']))
         print('|\tRotation :' + str(matrix['rotation']))
         print('|\tScale :' + str(matrix['scale']))
+        print('|\tChild Count :' + str(child_element_count))
         print('|\tID :' + str(id[0:3]))
         print('|\t   :' + str(id[3:6]))
-        print('|\tUnknown :' + str((ued1, ued2, ued3, ued4, ued5, ued6)))
+        print('|\tUnknown :' + str((ued4, ued5, ued6)))
         print('|')
         
     sections.append(r_sec(8, 1)) #7
     print()
     print_sec(sections[-1])
     for i in range(len(elements)):
-        ued0_1 = r_short()
-        ued0_2 = r_short()
         
         model_index = r_int()
          
@@ -233,6 +233,8 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
         ued3 = r_int()
         ued4 = r_int()
         ued5 = r_int()
+        ued6_0 = r_short()
+        ued6_1 = r_short()
         
         element = {}
         element['matrix'] = matrix
@@ -254,32 +256,25 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
             sayParent = elements[parent_index]['name']
         print('|\tParent :({0}) {1}'.format(parent_index, sayParent))
         print('|\tModel Parent :{0}-{1}'.format(model_index, element_index))
-        print('|\tUnknown :' + str((ued0_1, ued0_2)))
         print('|\tUnknown :' + str((ued3, ued4, ued5)))
+        print('|\tUnknown2 :' + str((ued6_0, ued6_1)))
         print('|')
-    
-    r_ad()
     
     sections.append(r_sec(8, 2)) #8 Constr
     print_sec(sections[-1])
-    r_ad()
     
     sections.append(r_sec(8, 2)) #9 Render
     print_sec(sections[-1])
-    r_ad()
     
     sections.append(r_sec(8, 2)) #10 Render
     print_sec(sections[-1])
-    r_ad()
     
     sections.append(r_sec(8, 2)) #11 Header
     print_sec(sections[-1])
     r_ad()
-    r_ad()
     
     sections.append(r_sec(8, 3)) #12 Scene
     print_sec(sections[-1])
-    r_ad()
     
     r_ad() #ARCH
     r_ad(8) #01000000 00000000
