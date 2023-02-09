@@ -95,12 +95,12 @@ class Reader:
 def to_hex(inString) -> str:
     return format(inString, 'x')
 
-def read_cpmodel_data(context, filepath, use_some_setting):
+def read_cpmodel_data(self, context, filepath, use_some_setting):
     directory = bpy.path.abspath("//")
-    if directory == '':
-        return {'FAILED'}
-    
-    if not os.path.exists(directory+"textures"):
+    saved = directory != ''
+    if not saved:
+        self.report({'WARNING'}, "The blend file is not saved. Textures will not be downloaded.")
+    elif not os.path.exists(directory+"textures"):
         os.makedirs(directory+"textures")
     
     reader = Reader(filepath)
@@ -228,22 +228,22 @@ def read_cpmodel_data(context, filepath, use_some_setting):
     
     reader.advance() #FFFFFFFF
     
-    print("Constr "+str(reader.position()))
+    print("Constr "+str(reader.position()));
     reader.read_string(8) # Constr..
     reader.advance() # Constr Header Size
     reader.advance()
 
-    print("Render "+str(reader.position()))
+    print("Render "+str(reader.position()));
     reader.read_string(8) # Render..
     reader.advance() # Unknown
     reader.advance()
 
-    print("Render "+str(reader.position()))
+    print("Render "+str(reader.position()));
     reader.read_string(8) # Render..
     reader.advance() # Unknown
     reader.advance()
 
-    print("Header "+str(reader.position()))
+    print("Header "+str(reader.position()));
     reader.read_string(8) # Header..
     reader.read_int() # Header Size
     reader.advance(8)
@@ -294,7 +294,7 @@ def read_cpmodel_data(context, filepath, use_some_setting):
     
     reader.advance() #52410000
 
-    print("Count "+str(reader.position()))
+    print("Count "+str(reader.position()));
     meshGroupDevinitionsCount = reader.read_int()
     print(meshGroupDevinitionsCount)
     meshGroupDefinitions = []
@@ -367,41 +367,46 @@ def read_cpmodel_data(context, filepath, use_some_setting):
         
         pitch = int((texWidth * 1024 + 7)/8)
         
-        with open(directory+"textures\\"+texName+".dds", 'wb') as textureFile:
-            def write(value, len = 4):
-                textureFile.write(value.to_bytes(len, byteorder='little'))
-            textureFile.write(b'DDS ')                  #Magic Header
-            write(0x7c)                                 #Header Size
-            write(0xa1007)                              #dw Flags 0xa1007
-            write(texWidth)                             #Height
-            write(texHeight)                            #Width
-            write(pitch)                                #Pitch
-            write(0x0)                                  #Depth
-            write(0x9)                          #MipMapCount
-            write(0x0, 44)                              #dwReserved1[11]
+        if saved:                
+            with open(directory+"textures\\"+texName+".dds", 'wb') as textureFile:
             
-            #pixel format
+                def write(value, len = 4):
+                    textureFile.write(value.to_bytes(len, byteorder='little'))
+                
+                textureFile.write(b'DDS ')                  #Magic Header
+                write(0x7c)                                 #Header Size
+                write(0xa1007)                              #dw Flags 0xa1007
+                write(texWidth)                             #Height
+                write(texHeight)                            #Width
+                write(pitch)                                #Pitch
+                write(0x0)                                  #Depth
+                write(0x9)                          #MipMapCount
+                write(0x0, 44)                              #dwReserved1[11]
             
-            write(0x20)                                 #Pixel Format Size
-            write(0x4)                                  #Pixel Format Flags
-            write(dxtVer)                               #DXT[1?]
-            write(0x0)                                  #Red Bit Mask
-            write(0x0)                                  #Blue Bit Mask
-            write(0x0)                                  #Green Bit Mask
-            write(0x0)                                  #Alpha Bit Mask
+                #pixel format
             
-            #Back to regular Header
+                write(0x20)                                 #Pixel Format Size
+                write(0x4)                                  #Pixel Format Flags
+                write(dxtVer)                               #DXT[1?]
+                write(0x0)                                  #Red Bit Mask
+                write(0x0)                                  #Blue Bit Mask
+                write(0x0)                                  #Green Bit Mask
+                write(0x0)                                  #Alpha Bit Mask
             
-            write(0x0)                                  #Caps
-            write(0x401008)                             #Caps2
+                #Back to regular Header
             
-            write(0x0)                                  #Unused Caps3
-            write(0x0)                                  #Unused Caps4
-            write(0x0)                                  #Unused Reserved2
+                write(0x0)                                  #Caps
+                write(0x401008)                             #Caps2
             
-            write(0x0)                                  #I have no idea
+                write(0x0)                                  #Unused Caps3
+                write(0x0)                                  #Unused Caps4
+                write(0x0)                                  #Unused Reserved2
             
-            textureFile.write(reader.read(texLength - 0x1c)) #textureData
+                write(0x0)                                  #I have no idea
+            
+                textureFile.write(reader.read(texLength - 0x1c)) #textureData
+            
+            bpy.ops.image.open(filepath=directory+"textures\\"+texName+".dds")
 
     reader.advance(8) #52410000 52410300
     reader.advance(8) #52410000 00000000
@@ -722,7 +727,7 @@ class ImportSomeData(Operator, ImportHelper):
     )
 
     def execute(self, context):
-        return read_cpmodel_data(context, self.filepath, self.use_setting)
+        return read_cpmodel_data(self, context, self.filepath, self.use_setting)
 
 def menu_func_import(self, context):
     self.layout.operator(ImportSomeData.bl_idname, text="Import CPModel (.model)")
@@ -730,12 +735,12 @@ def menu_func_import(self, context):
 
 def register():
     bpy.utils.register_class(ImportSomeData)
-    bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
+    #bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
 
 
 def unregister():
     bpy.utils.unregister_class(ImportSomeData)
-    bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
+    #bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
 
 if __name__ == "__main__":
     register()
