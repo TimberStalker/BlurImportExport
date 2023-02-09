@@ -614,6 +614,7 @@ def read_cpmodel_data(self, filepath):
     
     print('\nRendering Data 0x' + to_hex(r_pos()))
     rendering_data = [0] * r_int()
+    print('\nLen ' + str(len(rendering_data)))
     for i in  range(len(rendering_data)):
         r_ad(1) #03
         node_name = r_string()
@@ -643,7 +644,7 @@ def read_cpmodel_data(self, filepath):
         
         r_ad()
         
-        urd4 = r_int()
+        urd5 = r_int()
         
         r_ad()
         
@@ -654,7 +655,7 @@ def read_cpmodel_data(self, filepath):
         print('|\tUnknown2 :{0} {1} {2} {3}'.format(urd1, urd2, urd3, urd4))
         print('|\tBounding Box :' + bb_toString(bbox))
         print('|\tUnknown3 :{0} {1}'.format(urdf1, urdf2))
-        print('|\tUnknown4 :{0}'.format(urd4))
+        print('|\tUnknown4 :{0}'.format(urd5))
         print('|')
         
         ff_count = r_int()
@@ -682,6 +683,7 @@ def read_cpmodel_data(self, filepath):
     urdv1 = (r_int(), r_int(), r_int())
     r_ad()
     urdv2 = (r_int(), r_int(), r_int())
+    
     for i in range(1 ,len(shaders)):
         r_ad()
         name_length = r_int()
@@ -867,7 +869,8 @@ def create_model_from_data(model, swap_faces):
         for vertex_data in vert_stream['verticies'][vert_start:vert_end]:
             
             vert = bm.verts.new(vertex_data[0][0:3])
-            vert.normal = vertex_data[1][0:3]
+            if(len(vertex_data) > 1):
+                vert.normal = vertex_data[1][0:3]
             for i,fc in enumerate(vertex_colors):
                 vert[fc] = vertex_data[i+2]
             
