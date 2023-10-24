@@ -7,7 +7,7 @@ bl_info = {
     "name" : "BlurImportExport",
     "author" : "TimberStalker",
     "description" : "",
-    "blender" : (2, 80, 0),
+    "blender" : (3, 0, 0),
     "version" : (0, 0, 1),
     "category" : "Import-Export"
 }
@@ -54,13 +54,26 @@ class Reader:
         #"""Read a half from the file and advance the pointer 2 bytes"""
         return float(np.frombuffer(self.read(2), np.float16))
 
-    def read_string(self, stringLength = 0) -> str:
+    def read_string(self, len = 0, clip = 0) -> str:
         #"""Read a string from the file and advance the pointer [stringLength] bytes. 
         #If no string length is given, the function will first read an integer describing the length and then read the string"""
-        if stringLength == 0:
-            return self.read(self.read_int()).decode('utf-8')
-        else:
-            return self.read(stringLength).decode('utf-8')
+        
+        if len == 0:
+            len = self.read_int()
+            
+        bytes = self.read(len-clip)
+        if clip > 0:
+            self.advance(clip)
+        return bytes.decode('utf-8')
+    
+    def read_cstring(self) -> str:
+        bytes = bytearray()
+        byte = self.read_byte()
+        while(byte != 0):
+            bytes.append(byte)
+            byte = self.read_byte()
+        
+        return bytes.decode('utf-8')
         
     def read_matrix(self):
         scalex = self.read_float() #1
@@ -101,7 +114,725 @@ class Reader:
 def to_hex(inString) -> str:
     return format(inString, 'x')
 
-def read_cpmodel_data(self, context, filepath, use_some_setting):
+
+
+
+
+
+
+
+#---------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
+def import_cpmodel(self, context, filepath, swap_faces):
+    
+    model = read_cpmodel_data(self, filepath)
+    
+    create_model_from_data(model, swap_faces)
+    
+    for object in bpy.data.objects:
+        if not object.parent == None:
+            object.matrix_parent_inverse = object.parent.matrix_world.inverted()
+        
+    return {'FINISHED'}
+    
+def read_cpmodel_data(self, filepath):
+    
+    reader = Reader(filepath)
+    
+    model = {}
+    
+    r_pos = reader.pos
+    r_int = reader.read_int
+    r_string = reader.read_string
+    r_cstring = reader.read_cstring
+    r_float = reader.read_float
+    r_short = reader.read_short
+    r_byte = reader.read_byte
+    r_half = reader.read_half
+    r_matrix = reader.read_matrix
+    r_ad = reader.advance
+    
+    def r_bb():
+        return ({'x':r_float(), 'z':r_float(), 'y':r_float()}, {'x':r_float(), 'z':r_float(), 'y':r_float()})
+    def r_sec(len, clip):
+        sections.append({'title':r_string(len, clip), 'start':r_pos()-len, 'length':r_int(), 'end':r_int()})
+    def print_sec(sec):
+        print('{0}: 0x{1} [0x{2}]'.format(sec['title'], to_hex(sec['start']), to_hex(sec['length'])))
+    def bb_toString(bbox):
+        return '({:.2f}, {:.2f}, {:.2f}), ({:.2f}, {:.2f}, {:.2f})'.format(bbox[0]['x'], bbox[0]['y'], bbox[0]['z'], bbox[1]['x'], bbox[1]['y'], bbox[1]['z'])
+    
+    def readSubModel(names):
+        matrix = r_matrix()
+        bbox = r_bb()
+        
+        name_index = r_int()
+        name = names[name_index]
+        
+        model_index = r_int()
+        child_element_count = r_int()
+        hierarchy_index = r_int()
+        ued4 = r_int()
+        ued5 = r_int()
+        ued6 = r_int()
+        
+        submodel = {}
+        submodel['matrix'] = matrix
+        submodel['name'] = name
+        submodel['bounding_box'] = bbox
+        submodel['model_index'] = model_index
+        submodel['element_count'] = child_element_count
+        submodel['hierarchy_index'] = hierarchy_index
+        
+        print('|{0} ({1})'.format(name, i))
+        print('|\tPosition :' + str(matrix['position']))
+        print('|\tRotation :' + str(matrix['rotation']))
+        print('|\tScale :' + str(matrix['scale']))
+        print('|\tBounding Box :' + bb_toString(bbox))
+        print('|\tChild Count :' + str(child_element_count))
+        print('|\tUnknown :' + str((ued4, ued5, ued6)))
+        print('|')
+        return submodel
+        
+    def readElement(names, elements):
+        model_index = r_int()
+         
+        matrix = r_matrix()
+        bbox = r_bb()
+         
+        name_index = r_int()
+        name = names[name_index]
+        
+        
+        element_index = r_int()
+        parent_index = r_int()
+        ued3 = r_int()
+        ued4 = r_int()
+        ued5 = r_int()
+        ued6_0 = r_short()
+        ued6_1 = r_short()
+        
+        element = {}
+        element['matrix'] = matrix
+        element['bounding_box'] = bbox
+        element['name'] = name
+        if parent_index >= 0:
+            element['parent'] = parent_index
+        models[model_index][element_index] = element
+        
+        print('|{0} ({1})'.format(name, i))
+        print('|\tPosition :' + str(matrix['position']))
+        print('|\tRotation :' + str(matrix['rotation']))
+        print('|\tScale :' + str(matrix['scale']))
+        print('|\tBounding Box :' + bb_toString(bbox))
+        sayParent = ""
+        if 'parent' in element and not elements[parent_index] == 0:
+            sayParent = elements[parent_index]['name']
+        print('|\tParent :({0}) {1}'.format(parent_index, sayParent))
+        print('|\tModel Parent :{0}-{1}'.format(model_index, element_index))
+        print('|\tUnknown :' + str((ued3, ued4, ued5)))
+        print('|\tUnknown2 :' + str((ued6_0, ued6_1)))
+        print('|')
+        return element
+        
+    def readTexture():
+        name = r_string()
+        tu1 = r_int()
+        
+        r_ad() #52410000
+        r_ad() #52410000
+        r_ad() #02000000
+        
+        name2 = r_string()
+        r_ad()
+        
+        tu2 = r_int()
+        tu3 = r_int()
+        tu4 = r_int()
+        tu5 = r_int()
+        tu6 = r_int()
+        tu7 = r_int()
+        tu8 = r_int()
+        tu9 = r_int()
+        tu10 = r_int()
+        tu11 = r_int()
+        tu12 = r_int()
+        
+        length = r_int()
+        height = r_int()
+        width = r_int()
+        
+        tu13 = r_int()
+        
+        mipmaps = r_int()
+        dxt = r_int()
+        
+        tu14 = r_int()
+        tu15 = r_int()
+        
+        pitch = int((width * 1024 + 7)/8)
+        print('|({0}) {1}'.format(i, name))
+        print('|\t'+to_hex(dxt))
+        print('|\tData {0}x{1} M:{2} P:{3} [0x{4}]'.format(width, height, mipmaps, pitch, length))
+        print('|\tUnknown1 :0x{0}'.format(to_hex(tu1)))
+        print('|\tUnknown2.1 :{0} {1} {2} {3} {4}'.format(tu2, tu3, tu4, tu5, tu6))
+        print('|\tUnknown2.2 :{0} {1} {2} {3} {4}'.format(tu7, tu8, tu9, tu10, tu11))
+        print('|\tUnknown3 :0x{0}'.format(to_hex(tu12)))
+        print('|\tUnknown4 :{0}'.format(tu13))
+        print('|\tUnknown4 :{0} {1}'.format(tu14, tu15))
+        print('|')
+        
+        tex_data = reader.read(length - 0x1c)
+        
+        texture = {}
+        texture['name'] = name
+        texture['name2'] = name2
+        texture['dxt'] = dxt
+        texture['width'] = width
+        texture['height'] = height
+        texture['length'] = length
+        texture['mipmaps'] = mipmaps
+        texture['pitch'] = pitch
+        texture['data'] = tex_data
+        return texture
+    
+    def readVertex(t):
+        if  t == 6:
+            x = r_float()
+            y = r_float()
+            z = r_float()
+            return (x, z, y, 0)
+        elif t == 8:
+            x = r_half()
+            y = r_half()
+            return (x, y, 0, 0)
+        elif t == 9:
+            x = r_half()
+            y = r_half()
+            z = r_half()
+            w = r_half()
+            return (x, z, y, w)
+        elif t == 0xA:
+            x = r_byte()
+            y = r_byte()
+            z = r_byte()
+            w = r_byte()
+            return (x, y, z, w)
+        elif t == 0xB:
+            x = r_byte()/255.0
+            y = r_byte()/255.0
+            z = r_byte()/255.0
+            w = r_byte()/255.0
+            return (x, y, z, w)
+            
+    def renderListNode_Cull():
+        pass
+    def renderListNode_Common():
+        pass
+    
+    sections = []
+    
+    sections.append((r_string(4), 0, 0)) #..CP
+    
+    r_sec(8, 3) #Model
+    
+    r_sec(8, 2) #Header
+    r_ad()
+    
+    r_sec(8, 2) #MdlDat
+    
+    r_sec(8, 2) #Header
+    r_ad()
+    
+    
+    models = [0] * r_int()
+    elements = [0] * r_int()
+    r_ad()
+    model_bb = r_bb()
+    
+    r_sec(8, 2) #5
+    
+    nameOffsets = []
+    for i in range(r_int() + 1):
+        nameOffsets.append(r_int())
+    
+    print_sec(sections[-1])
+    names = [r_cstring() for i in range(1, len(nameOffsets))]
+    
+    [print('|({1})  {0}'.format(name, i)) for (i,name) in enumerate(names)]
+    
+    model['names'] = names
+    
+    r_sec(8, 2) #Models
+    
+    print_sec(sections[-1])
+    for i in range(len(models)):
+        models[i] = readSubModel(names)
+    
+    model['models'] = models
+    
+    r_sec(8, 1) #Elements
+    print()
+    print_sec(sections[-1])
+    for i in range(len(elements)):
+        elements[i] = readElement(names, elements)
+    
+    model['elements'] = elements
+    r_sec(8, 2) #8 Constr
+    print_sec(sections[-1])
+    
+    r_sec(8, 2) #9 Render
+    print_sec(sections[-1])
+    
+    r_sec(8, 2) #10 Render
+    print_sec(sections[-1])
+    
+    r_sec(8, 2) #11 Header
+    print_sec(sections[-1])
+    r_ad()
+    
+    r_sec(8, 3) #12 Scene
+    print_sec(sections[-1])
+    
+    r_ad() #ARCH
+    r_ad(8) #01000000 00000000
+    
+    r_ad() #ARCH
+    r_ad(8) #00000000 01000000
+    
+    r_ad(12)  # 52410100 52410000 02000000
+    
+    r_ad(8) #52410000 00000000
+    r_ad(8) #52410000 #52410200
+    r_ad(8) #52410000 #00000000
+    
+    r_ad() #52410000
+    
+    print('\nARCH Data 0x' + to_hex(r_pos()))
+    arch_dats = [0] * r_int()
+    for i in range(len(arch_dats)):
+        ad1 = r_int()
+        ad2 = r_int()
+        arch_dats[i] = (ad1, ad2)
+        print('|\t ' + str(arch_dats[i]))
+    
+    
+    r_ad(0xc) #FFFFFFFFFFFF
+    r_ad(8) #00000000 52410000
+    r_ad(0x20) #Unknown
+    r_ad(8) #52410000 Unknown
+    r_ad() #52410000
+    
+    ff_Count = r_int()
+    r_ad(ff_Count+4)
+    
+    r_ad(8) #52410000 00000000
+    
+    r_ad(8) #52410000 00000000
+    
+    r_ad() #52410000
+    
+    print('\nVertex Definitions 0x'+to_hex(r_pos()))
+    vert_definitions = [0] * r_int()
+    for i in range(len(vert_definitions)):
+        r_ad()
+        
+        data = [0] * r_int()
+        print('|Definition ({0})'.format(i))
+        for j in range(len(data)):
+            r_ad()
+            type_prefix = r_short()
+            offset = r_short()
+            data_type = r_int()
+            r_ad()
+            channel = r_int()
+            sub_channel = r_byte()
+            
+            print('|\t{0}\t{1}-{2}\t{3}-{4}'.format(to_hex(data_type), type_prefix, offset, channel, sub_channel))
+            definition = {}
+            definition['prefix'] = type_prefix
+            definition['offset'] = offset
+            definition['type'] = data_type
+            definition['channel'] = channel
+            definition['sub_channel'] = sub_channel
+            data[j] = definition
+        vert_definitions[i] = data
+    
+    model['vert_definitions'] = vert_definitions
+    
+    r_ad()
+    print('\nFX Files 0x'+to_hex(r_pos()))
+    fx_files = [0] * r_int()
+    for i in range(len(fx_files)):
+        r_ad()
+        r_ad()
+        file_name = r_string()
+        
+        print('|({0}) {1}'.format(i, file_name))
+        
+        fx_files[i] = file_name
+    
+    model['fx_files'] = fx_files
+    r_ad()
+    r_ad() #52410000
+    r_ad() #52410000
+    r_ad() #02000000
+    
+    print('\nTextures 0x' + to_hex(r_pos()))
+    textures = [0] * r_int()
+    
+    for i in range(len(textures)):
+        textures[i] = readTexture()
+        
+    model['textures'] = textures
+    
+    r_ad(8) #52410000 52410300
+    r_ad(8) #52410000 00000000
+    r_ad(8) #52410000 00000000
+    r_ad(8) #52410000 00000000
+    r_ad(8) #52410000 00000000
+    r_ad(8) #52410000 00000000
+    r_ad() #01000000
+    
+    r_ad() #52410000
+    r_ad(7) #03000000 000002
+    r_ad() #52410000
+    r_ad() #52410000
+    r_ad(8) #52410000 00000000
+    r_ad(8) #00000000 00000000
+
+    uvsd1 = r_int()
+    r_ad() #52410000
+    r_ad() #52410000
+    r_ad(8) #02000000 0A000000
+    r_ad() #52410000
+    r_ad() #52410000
+    r_ad(8) #02000000 00000000
+    r_ad() #52410000
+    
+    print('\nVert Streams 0x'+to_hex(r_pos()))
+    vertex_streams = [0] * r_int()
+    
+    for i in range(len(vertex_streams)):
+        r_ad(1) #02
+        r_ad() #52410100
+        r_ad() #52410000
+        
+        byte_length = r_int()
+        
+        r_ad()
+        print('|Vert Stream ({0})'.format(i))
+        print('|\tDefinitions:')
+        vert_stream_definitions = [0] * r_int()
+        for j in range(len(vert_stream_definitions)):
+            r_ad()
+            data_type = r_int()
+            unknown_vert_stream_data = r_int()
+            channel = r_int()
+            sub_channel = r_int()
+            
+            definition = {}
+            definition['type'] = data_type
+            definition['unknown'] = unknown_vert_stream_data
+            definition['channel'] = channel
+            definition['sub_channel'] = sub_channel
+            vert_stream_definitions[j] = definition
+            
+            print('|\t\t{0}\t{1}\t{2}-{3}'.format(to_hex(data_type), unknown_vert_stream_data, channel, sub_channel))
+        
+        r_ad()
+        vert_data_offsets = [r_short() for j in range(r_int())]
+        
+        vertex_count = r_int()
+        r_ad()
+        vertex_stream_length = r_int()
+        r_ad()
+        r_ad(vertex_stream_length)
+        if i == len(vertex_streams) - 1:
+            reader.advance_to(0x4152)
+        else:
+            reader.advance_to(0x1415202)
+        
+        r_ad(-vertex_stream_length)
+        
+        start = r_pos()
+        
+        verticies = []
+        for j in range(vertex_count):
+            
+            vertex = []
+            
+            for definition in vert_stream_definitions:
+                t = definition['type']
+                vertex.append(readVertex(t))
+                
+            verticies.append(vertex)
+            
+        print('|\tData :0x{0} [0x{1}]'.format(to_hex(start), to_hex(vertex_stream_length)))
+        print('|\tCount :{0}'.format(vertex_count))
+        print('|\tBytes :{0}'.format(byte_length))
+        print('|')
+        
+        stream = {}
+        stream['verticies'] = verticies
+        stream['bytes'] = byte_length
+        stream['count'] = vertex_count
+        stream['length'] = vertex_stream_length
+        stream['start'] = start
+        stream['definition'] = vert_stream_definitions
+        vertex_streams[i] = stream
+    
+    model['vertex_streams'] = vertex_streams
+    r_ad()
+    print('\nFace Streams 0x' + to_hex(r_pos()))
+    face_streams = [0] * r_int()
+    
+    for i in range(len(face_streams)):
+        r_ad(1) #02
+        r_ad() #52410100
+        
+        face_count = r_int()
+        
+        r_ad() #00000000
+        r_ad() #52410000
+        
+        face_stream_length = r_int()
+        
+        r_ad() #10000000
+        
+        r_ad(face_stream_length)
+        
+        if i == len(face_streams) - 1:
+            reader.advance_to(0x4152)
+        else:
+            reader.advance_to(0x1415202)
+        
+        r_ad(-face_stream_length)
+        start = r_pos()
+        
+        faces = [r_short() for j in range(face_count)]
+        
+        print('|\tFace Stream ({0})'.format(i))
+        print('|\tStart :0x{0}'.format(to_hex(start)))
+        print('|\tLength :0x{0}'.format(to_hex(face_stream_length)))
+        print('|\tCount :{0}'.format(face_count))
+        print('|')
+        
+        stream = {}
+        stream['faces'] = faces
+        stream['start'] = start
+        stream['length'] = face_stream_length
+        stream['count'] = face_count
+        face_streams[i] = stream
+    
+    r_ad() #52410000
+    
+    model['face_streams'] = face_streams
+    
+    print('\nRendering Data 0x' + to_hex(r_pos()))
+    rendering_data = [0] * r_int()
+    print('\nLen ' + str(len(rendering_data)))
+    for i in  range(len(rendering_data)):
+        r_ad(1) #03
+        node_name = r_string()
+        
+        if(node_name == "RenderingData::CullNode"):
+            pass
+        elif(node_name == "RenderingData::RenderListNode_Common"):
+            pass
+        
+        common = r_int() #52410200
+        if common == 0x4152:
+            r_ad(0x58)
+            ff_count = r_int()
+            r_ad(ff_count + 4)
+            break
+        
+        r_ad() #52410000
+        modelName = r_string()
+        r_ad() #52410000
+        udat = [(r_int(), r_int()) for j in range(r_int())]
+        
+        urd1 = r_int()
+        urd2 = r_int()
+        urd3 = r_int()
+        urd4 = r_int()
+        
+        r_ad()
+        
+        bbox = r_bb()
+        urdf1 = r_float()
+        urdf2 = r_float()
+        
+        r_ad()
+        
+        urd5 = r_int()
+        
+        r_ad()
+        
+        print('|Rendering Data ({0}) {1}'.format(i, node_name))
+        print('|\tCommon :0x{0}'.format(common))
+        print('|\tModel :{0}'.format(modelName))
+        print('|\tUnknown1 :{0}'.format(udat))
+        print('|\tUnknown2 :{0} {1} {2} {3}'.format(urd1, urd2, urd3, urd4))
+        print('|\tBounding Box :' + bb_toString(bbox))
+        print('|\tUnknown3 :{0} {1}'.format(urdf1, urdf2))
+        print('|\tUnknown4 :{0}'.format(urd5))
+        print('|')
+        
+        ff_count = r_int()
+        r_ad(ff_count+4)
+        r_ad() #52410000
+        r_ad() #00000000
+        r_ad() #52410000
+        r_ad() #00000000
+    
+    model['rendering_data'] = rendering_data
+    
+    r_ad() #52410000
+    r_ad() #00000000
+    r_ad() #52410000
+    r_ad() #00000000
+    r_ad() #52410000
+    r_ad() #52410000
+    
+    print('\nShaders 0x' + to_hex(r_pos()))
+    shaders = [0] * r_int()
+    print(len(shaders))
+    
+    for i in range(len(shaders)):
+        r_ad()
+        name_length = r_int()
+        if name_length == 0:
+            r_ad()
+            urdv1 = (r_int(), r_int(), r_int())
+            r_ad()
+            urdv2 = (r_int(), r_int(), r_int())
+            continue
+        fx_name = r_string(name_length)
+        r_ad()
+        
+        print('|Shader ({0}) {1}'.format(i, fx_name))
+        parameters = [{}] * r_int()
+        
+        print('|\tParams:')
+        for param in parameters:
+            r_ad()
+            param_name = r_string()
+            param_values = [r_int(), r_int()]
+        
+            print('|\t\t {0}:{1}'.format(param_name, param_values))    
+            param['name'] = param_name
+            param['values'] = param_values
+        
+        extra_params = [r_int() for j in range(2)]
+        r_ad()
+        
+        other_params = [r_short() for j in range(r_int() + 1)]
+        print('|\tExtra Params :{0}'.format(extra_params))
+        print('|\tOther Params :{0}'.format(other_params))
+        print('|')
+        r_ad(6)
+    
+    model['shaders'] = shaders
+    
+    r_ad()
+    r_ad()
+    
+    r_ad()
+    
+    print('\nMeshes 0x' + to_hex(r_pos()))
+    meshes = [0] * r_int()
+    for i in range(len(meshes)):
+        r_ad()
+        material_index = r_int()
+        definition_index = r_int()
+        face_type = r_int()
+        face_stream_index = r_int()
+        object_index = r_short()
+        mud2 = r_short()
+        
+        r_ad()
+        mud3 = r_int()
+        mud4 = r_int()
+        
+        r_ad()
+        mud5 = r_int()
+        mud6 = r_int()
+        
+        r_ad() #52410000
+        r_ad() #01000000
+        r_ad() #05000000
+        r_ad() #00000000
+        r_ad() #00000000
+        r_ad() #01000000
+        r_ad() #00000000
+        
+        r_ad() #52410000
+        
+        mesh_data_1 = [0] * r_int()
+        for j in range(len(mesh_data_1)):
+            r_ad() #52410000
+            data = {}
+            data['face_offset'] = r_int()
+            data['face_count'] = r_int()
+            data['vert_offset'] = r_int()
+            data['vert_count'] = r_int()
+            mesh_data_1[j] = data
+            
+        r_ad() #52410000
+        
+        mesh_data_2 = [0] * r_int()
+        for j in range(len(mesh_data_2)):
+            r_ad() #52410000
+            data = {}
+            data['u1'] = r_int()
+            data['u2'] = r_int()
+            data['vOffset'] = r_int()
+            data['u4'] = r_int()
+            
+            r_ad()
+            data['u5'] = r_int()
+            data['u6'] = r_int()
+            mesh_data_2[j] = data
+        
+        mesh = {}
+        mesh['definition'] = definition_index
+        mesh['face_type'] = face_type
+        mesh['face_stream_index'] = face_stream_index
+        mesh['object_index'] = object_index
+        mesh['data1'] = mesh_data_1
+        mesh['data2'] = mesh_data_2
+        mesh['material_index'] = material_index
+        mesh['index'] = i
+        meshes[i] = mesh
+        
+        print('|Mesh {0}'.format(i))
+        print('|\tMaterial :({0}) {1}'.format(material_index, fx_files[material_index]))
+        print('|\tDefinition :({0}) {1}'.format(definition_index, ''.join([to_hex(definition['type']) for definition in vert_definitions[definition_index]])))
+        print('|\tFace Type :{0} (Triangle|TStrip)'.format(face_type))
+        print('|\tFace Stream :{0}'.format(face_stream_index))
+        print('|\tObject :({0}) {1}'.format(object_index, elements[object_index]['name']))
+        print('|\tUnknown2 :{0}'.format(mud2))
+        print('|\tUnknown3 :{0} {1}'.format(mud3, mud4))
+        print('|\tUnknown4 :{0} {1}'.format(mud5, mud6))
+        print('|\tData1 :')
+        [print('|\t\tFaces :({0})-({1}) Verts :({2})-({3})'.format(dats['face_offset'], dats['face_count'], dats['vert_offset'], dats['vert_count'])) for dats in mesh_data_1]
+        print('|\tData2 :')
+        [print('|\t\tUnknown1 :({0})-({1}) Verts :({2})-({3}) Unknown :({4})-({5})'.format(dats['u1'], dats['u2'], dats['vOffset'], dats['u4'], dats['u5'], dats['u6'])) for dats in mesh_data_2]
+        print('|')
+    
+    model['meshes'] = meshes
+    
+    #bpy.context.scene['last_model'] = model
+    
+    return model
+
+
+def create_model_from_data(model, swap_faces):
+    
     directory = bpy.path.abspath("//")
     saved = directory != ''
     if not saved:
@@ -109,319 +840,10 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
     elif not os.path.exists(directory+"textures"):
         os.makedirs(directory+"textures")
     
-    reader = Reader(filepath)
-    
-    #..CP
-    reader.advance() 
-    
-    # Model...
-    reader.read_string(8)
-    fileEnd = reader.read_int()
-    reader.advance(4)
-
-    # Header..
-    reader.read_string(8) 
-    headerSize = reader.read_int()
-    reader.advance(8)
-    
-    # MdlDat..
-    reader.read_string(8) 
-    modelDataEnd = reader.read_int()
-    reader.advance(4)
-
-    # Header..
-    reader.read_string(8) 
-    modelDataHeaderEnd = reader.read_int()
-    reader.advance(8)
-
-    print('Model Data')
-    print('|File End: '+to_hex(fileEnd))
-    print('|Header Size: '+to_hex(fileEnd))
-    print('|Model End: '+to_hex(modelDataEnd))
-    print('|Model Header End: '+to_hex(modelDataHeaderEnd))
-    print()
-    
-    modelCount = reader.read_int()
-    elementCount = reader.read_int()
-    reader.advance(4)
-    reader.advance(0x18) # Unknown Data
-    
-    print('Models: '+str(modelCount))
-    print('Elements: '+str(elementCount))
-    print()
-    
-    reader.read_string(8) # StrTab..
-    unknown = reader.read_int()
-    reader.advance(4)
-    
-
-    stringTableCount = reader.read_int()
-    nameOffsets = []
-    for i in range(0, stringTableCount + 1):
-        nameOffsets.append(reader.read_int())
-        #int[] nameOffsets = Enumerable.Range(0, stringTableCount + 1).Select(_ => reader.read_int()).ToArray()
-
-    print('Names')
-        
-    stringTable = []
-    for i in range(0, stringTableCount):
-        name = reader.read_string(nameOffsets[i + 1] - nameOffsets[i] - 1)
-        reader.advance(1)
-        stringTable.append(name)
-        print('|('+str(i)+')\t'+name)
-
-    reader.read_string(8) # Models..
-    modelsEnd = reader.read_int()
-    reader.advance()
-    
-    print()
-    print("Models")
-    for i in range(0, modelCount):
-        
-        matrix = reader.read_matrix()
-        
-        #unknownList = reader.read(24) # unknown Data Possibly id
-        ued1 = reader.read_float()
-        ued2 = reader.read_float()
-        ued3 = reader.read_float()
-        ued4 = reader.read_float()
-        ued5 = reader.read_float()
-        ued6 = reader.read_float()
-        
-        nameIndex = reader.read_int()
-        
-        ued14 = reader.read_int()
-        ued15 = reader.read_int()
-        ued16 = reader.read_int()
-        ued17 = reader.read_int()
-        ued18 = reader.read_int()
-        ued19 = reader.read_int()
-        
-        name = stringTable[nameIndex]
-        
-        modelObject = bpy.data.objects.new("Model {0}".format(name), None)
-    
-        modelObject.empty_display_size = 0.1
-        modelObject.empty_display_type = 'SPHERE'
-        
-        modelObject.location = matrix['position']
-        modelObject.rotation_euler = matrix['rotation']
-        modelObject.scale = matrix['scale']
-        
-        print("|" + name + "({0})".format(str(i)))
-        print("|\tPos :" + str(matrix['position']))
-        print("|\tRot :" + str(matrix['rotation']))
-        print("|\tScale :" + str(matrix['scale']))
-        print("|\tUnknown1.0 :" + str((ued1, ued2, ued3)))
-        print("|\tUnknown1.5 :" + str((ued4, ued5, ued6)))
-        print("|\tUnknown2 :" + str((ued14, ued15, ued16, ued17, ued18, ued19)))
-        print("|")   
-        bpy.context.collection.objects.link(modelObject)
-    #reader.advance(modelsEnd-12)
-
-    reader.read_string(8) # Element.
-    elementEnd = reader.read_int()
-    
-    object_dats = []
-    print()
-    print("Elements")
-    for i in range(0, elementCount):
-        reader.read_int()
-        reader.advance() #00000000
-        
-        matrix = reader.read_matrix()
-        
-        #unknownList = reader.read(24) # unknown Data Possibly id
-        ued1 = reader.read_float()
-        ued2 = reader.read_float()
-        ued3 = reader.read_float()
-        ued4 = reader.read_float()
-        ued5 = reader.read_float()
-        ued6 = reader.read_float()
-        
-        nameIndex = reader.read_int()
-        
-        ued14 = reader.read_int()
-        parentIndex = reader.read_int()
-        ued16 = reader.read_int()
-        ued17 = reader.read_int()
-        ued18 = reader.read_int()
-        
-        objectName = stringTable[nameIndex]
-        
-        object_dats.append({'name':objectName,'matrix':matrix})
-        
-        print("|" + objectName + "({0})".format(str(i)))
-        print("|\tPos :" + str(matrix['position']))
-        print("|\tRot :" + str(matrix['rotation']))
-        print("|\tScale :" + str(matrix['scale']))
-        print("|\tUnknown1.0 :" + str((ued1, ued2, ued3)))
-        print("|\tUnknown1.5 :" + str((ued4, ued5, ued6)))
-        print("|\tUnknown2 :" + str((ued14, parentIndex, ued16, ued17, ued18)))
-        print("|") 
-    
-    reader.advance() #FFFFFFFF
-    
-    print("Constr "+str(reader.position()));
-    reader.read_string(8) # Constr..
-    reader.advance() # Constr Header Size
-    reader.advance()
-
-    print("Render "+str(reader.position()));
-    reader.read_string(8) # Render..
-    urd1 = reader.read_int() # Unknown
-    reader.advance()
-
-    print("Render "+str(reader.position()));
-    reader.read_string(8) # Render..
-    urd1 = reader.read_int() # Unknown
-    
-    reader.advance()
-
-    print("Header "+str(reader.position()));
-    reader.read_string(8) # Header..
-    reader.read_int() # Header Size
-    reader.advance(8)
-    
-    reader.read_string(8) # Scene...
-    sceneEnd = reader.read_int()
-    reader.advance()
-    reader.read_string(4) # ARCH
-    reader.advance(8) # 01000000 00000000
-
-    reader.read_string(4) # ARCH
-    reader.advance() # 00000000 01000000
-    unknownArch = reader.read_int()
-    
-    reader.advance() # 52410100
-    reader.advance() # 52410000
-    reader.advance() # 02000000
-    
-    reader.advance() #52410000
-    reader.advance() #00000000
-    
-    reader.advance() #52410000
-    reader.advance() #52410200
-    
-    reader.advance() #52410000
-    reader.advance() #00000000
-    
-    reader.advance() #52410000
-
-    unknownCount = reader.read_int()
-    for i in range(0, unknownCount):
-        reader.advance(8)
-
-    reader.advance(0xc) #FFFFFFFFFFFF
-    reader.advance(8) #00000000 52410000
-    reader.advance(0x20) #Unknown
-    reader.advance(8) #52410000 Unknown
-    reader.advance() #52410000
-
-    ff_Count = reader.read_int()
-    reader.advance(ff_Count+4)
-    
-    reader.advance() #52410000
-    reader.advance() #00000000
-    
-    reader.advance() #52410000
-    reader.read_int() #00000000
-    
-    reader.advance() #52410000
-
-    meshGroupDefinitionsCount = reader.read_int()
-    print(meshGroupDefinitionsCount)
-    meshGroupDefinitions = []
-    
-    print()
-    print("Mesh Definitions")
-    for i in range(meshGroupDefinitionsCount):
-        print("|Defintion " + str(i))
-        reader.advance() #52410000
-        definitionLength = reader.read_int()
-        meshDefinition = ""
-        data = []
-        for j in range(definitionLength):
-            reader.advance() #52410000
-            uvd1 = reader.read_short()
-            uvd2 = reader.read_short()
-            vertDataType = reader.read_int()
-            if uvd1 != 3:
-                meshDefinition += to_hex(vertDataType)
-                
-            reader.advance() #00000000
-            uvd3 = reader.read_int()
-            uvd4 = reader.read_byte() # unknownVertData3
-            
-            print("|\t{2} {0}-{1}\t{3}-{4}".format(uvd1, uvd2, to_hex(vertDataType), uvd3, uvd4))
-            
-            data.append({'type':vertDataType, '1':uvd1, '2':uvd2, '3':uvd3, '4':uvd4})
-        print("|\tFull : " + meshDefinition)
-        print()
-        meshGroupDefinitions.append(meshDefinition)
-
-    reader.read_int() #52410000
-    fxNamesCount = reader.read_int()
-    for i in range(fxNamesCount):
-        reader.advance() #52410000
-        reader.advance() #52410000
-        fxName = reader.read_string()
-
-    unknown1 = reader.read_int()
-    reader.advance() #52410000
-    reader.advance() #52410000
-    reader.advance() #02000000
-
-    textureCount = reader.read_int()
     textures = []
-    print("Textures")
-    for i in range(0, textureCount):
-        pos = reader.position()
-        texName = reader.read_string()
-        print("|{0} ({1})".format(texName, i))
-        print('|\tPosition : ' + str(pos))
-        
-        tu1 = reader.read_int()
-        reader.advance() #52410000
-        reader.advance() #52410000
-        reader.advance() #02000000
-        texName2 = reader.read_string()
-        reader.advance() #52410100
-        tu2 = reader.read_int() #00000000
-        tu3 = reader.read_int()
-        tu4 = reader.read_int()
-        
-        tu5 = reader.read_int() #01000000
-        tu6 = reader.read_int()
-        tu7 = reader.read_int()
-        
-        tu8 = reader.read_int() #00000000
-        tu9 = reader.read_int()
-        tu10 = reader.read_int()
-        tu11 = reader.read_int()
-        
-        tu13 = reader.read_int()
-        
-        texLength = reader.read_int()
-        texHeight = reader.read_int()
-        texWidth = reader.read_int()
-        tu14 = reader.read_int()
-        mipmapCount = reader.read_int()
-        dxtVer = reader.read_int()
-        tu15 = reader.read_int()
-        tu16 = reader.read_int()
-        
-        print('|\tDXT' + str(dxtVer))
-        print('|\tTex Dat : ' + str((texLength, texHeight, texWidth, mipmapCount)))
-        print('|\tUnknown1 : ' + str((to_hex(tu1), tu2, tu3, tu4)))
-        print('|\tUnknown2 : ' + str((tu5, tu6, tu7)))
-        print('|\tUnknown3 : ' + str((tu8, tu9, tu10, tu11)))
-        print('|\tTexUnknown : ' + str((tu14, tu15, tu16)))
-        
-        pitch = int((texWidth * 1024 + 7)/8)
-        
-        if saved:                
-            with open(directory+"textures\\"+texName+".dds", 'wb') as textureFile:
+    for tx in model['textures']:
+        if saved:    
+            with open(directory+"textures\\"+tx['name']+".dds", 'wb') as textureFile:
             
                 def write(value, len = 4):
                     textureFile.write(value.to_bytes(len, byteorder='little'))
@@ -429,18 +851,18 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
                 textureFile.write(b'DDS ')                  #Magic Header
                 write(0x7c)                                 #Header Size
                 write(0xa1007)                              #dw Flags 0xa1007
-                write(texWidth)                             #Height
-                write(texHeight)                            #Width
-                write(pitch)                                #Pitch
+                write(tx['width'])                             #Height
+                write(tx['height'])                            #Width
+                write(tx['pitch'])                                #Pitch
                 write(0x0)                                  #Depth
-                write(mipmapCount)                          #MipMapCount
+                write(tx['mipmaps'])                          #MipMapCount
                 write(0x0, 44)                              #dwReserved1[11]
             
                 #pixel format
             
                 write(0x20)                                 #Pixel Format Size
                 write(0x4)                                  #Pixel Format Flags
-                write(dxtVer)                               #DXT[1?]
+                write(tx['dxt'])                               #DXT[1?]
                 write(0x0)                                  #Red Bit Mask
                 write(0x0)                                  #Blue Bit Mask
                 write(0x0)                                  #Green Bit Mask
@@ -457,429 +879,183 @@ def read_cpmodel_data(self, context, filepath, use_some_setting):
             
                 write(0x0)                                  #I have no idea
             
-                textureFile.write(reader.read(texLength - 0x1c)) #textureData
+                textureFile.write(tx['data']) #textureData
             
-            tex = bpy.ops.image.open(filepath=directory+"textures\\"+texName+".dds")
+            tex = bpy.ops.image.open(filepath=directory+"textures\\"+tx['name']+".dds")
             textures.append(tex)
-
-    reader.advance(8) #52410000 52410300
-    reader.advance(8) #52410000 00000000
-    reader.advance(8) #52410000 00000000
-    reader.advance(8) #52410000 00000000
-    reader.advance(8) #52410000 00000000
-    reader.advance(8) #52410000 00000000
-    reader.advance() #01000000
     
-    reader.advance() #52410000
-    reader.advance(7) #03000000 000002
-    reader.advance() #52410000
-    reader.advance() #52410000
-    reader.advance(8) #52410000 00000000
-    reader.advance(8) #00000000 00000000
-
-    unknownMeshData1 = reader.read_int()
-    reader.advance() #52410000
-    reader.advance() #52410000
-    reader.advance(8) #02000000 0A000000
-    reader.advance() #52410000
-    reader.advance() #52410000
-    reader.advance(8) #02000000 00000000
-    reader.advance() #52410000
-
-    meshGroupCount = reader.read_int()
-    print("mesh groups count :" + str(meshGroupCount))
-    print("\n")
-    vertStreams = {}
+    materials = []
+    for fx_name in model['fx_files']:
+        fx = fx_name.split('.')[0]
+        mat = bpy.data.materials.get(fx)
+        if(mat is None):
+            mat = bpy.data.materials.new(fx)
+        materials.append(mat)
     
-    for i in range(0, meshGroupCount):
-        print("Vert Stream " + str(i))
-        reader.advance(1) #02
-        reader.advance() #52410100
-        reader.advance() #52410000
-        vertexBytes = reader.read_int()
-        print("|\tBytes Length : "+ str(vertexBytes))
+    defined_vertex_streams = {}
+    
+    for vs in model['vertex_streams']:
+        vs_vert_definition = ''.join([to_hex(definition['type']) for definition in vs['definition']])
+        defined_vertex_streams[vs_vert_definition] = vs
+    
+    objects = [None] * len(model['elements'])
+    
+    for mesh in model['meshes']:
+        definition = [item for item in model['vert_definitions'][mesh['definition']] if item['prefix'] == 0]
         
-        reader.advance() #52410000
-
-        vertDataLength = reader.read_int()
-        meshDefinition = ""
-        meshTypes = []
-        for j in range(0, vertDataLength):
-            reader.read_int() #52410000
-            vertDataType = reader.read_int()
-            reader.read_int() #00000000
-            unknownVertData1 = reader.read_int()
-            unknownVertData2 = reader.read_int()
-            meshDefinition += to_hex(vertDataType)
-            meshTypes.append({'type':vertDataType,'data1':unknownVertData1,'data2':unknownVertData2})
+        string_definition = ''.join([to_hex(item['type']) for item in definition])
+        vert_stream = defined_vertex_streams[string_definition]
         
-        print('|\tMesh Definition : ' + meshDefinition)
-        
-        reader.advance() #52410000
-        vertDataSplits = reader.read_int()
-        vertDataLengths = []
-        for j in range(0, vertDataSplits):
-            vertDataLengths.append(reader.read_short())
-
-        vertexCount = reader.read_int()
-        reader.advance() #52410000
-        vertexLength = reader.read_int()
-        reader.advance() #10000000
-        reader.advance(vertexLength)
-
-        if i == meshGroupCount - 1:
-            reader.advance_to(0x4152)
+        if swap_faces == True: 
+            face_stream = model['face_streams'][1-mesh['face_stream_index']]
         else:
-            reader.advance_to(0x1415202)
-
-        verticies = []
-        reader.advance(-vertexLength)
+            face_stream = model['face_streams'][mesh['face_stream_index']]    
         
-        vertStart = reader.pos()
-        print("|\tVerts Start : 0x"+to_hex(vertStart))
-        print("|\tVerts Count : "+to_hex(vertexCount))
-        for j in range(0, vertexCount):
-            #vertSplitLength = 0
-            vertData = []
+        
+        if objects[mesh['object_index']] == None:
+            objects[mesh['object_index']] = {'bm':bmesh.new(), 'materials':[]}
+        
+        object = objects[mesh['object_index']]
+        bm = object['bm']
+        
+        vertex_colors = []
+        if len(definition) > 2:
+            for i in range(len(definition) - 2):
+                fc = bm.verts.layers.float_color.get('Vert_Data_' + str(i), None)
+                if fc == None:
+                    fc = bm.verts.layers.float_color.new('Vert_Data_' + str(i))
+                
+                vertex_colors.append(fc)
             
-            for k in range(0, vertDataLength):
-                type = meshTypes[k]['type']
-                if  type == 6:
-                    x = reader.read_float()
-                    y = reader.read_float()
-                    z = reader.read_float()
-                    vertData.append((x, y, z))
-                elif type == 8:
-                    x = reader.read_half()
-                    y = reader.read_half()
-                    vertData.append((x, y))
-                elif type == 9:
-                    x = reader.read_half()
-                    y = reader.read_half()
-                    z = reader.read_half()
-                    w = reader.read_half()
-                    vertData.append((x, y, z, w))
-                elif type == 0xA:
-                    x = reader.read_byte()
-                    y = reader.read_byte()
-                    z = reader.read_byte()
-                    w = reader.read_byte()
-                    vertData.append((x, y, z, w))
-                elif type == 0xB:
-                    x = reader.read_byte()/255.0
-                    y = reader.read_byte()/255.0
-                    z = reader.read_byte()/255.0
-                    w = reader.read_byte()/255.0
-                    vertData.append((x, y, z, w))
-            
-            verticies.append(vertData)
-            
-        vertStreams[meshDefinition] = {'len':vertexBytes, 'verts':verticies, 'data':meshTypes, 'start':vertStart}
-        print("\n")
-        
-    print("read mesh groups")
-    reader.advance() #52410000
-    faceStreamCount = reader.read_int()
-    faceStreams = []
-    print("\n")
-    for i in range(0, faceStreamCount):
-        print('Face Stream '+ str(i))
-        reader.advance(1) #02
-        reader.advance() #52410100
-        faceCount = reader.read_int()
-        print('|\tFace Count : '+str(faceCount))
-        reader.advance() #00000000
-        reader.advance() #52410000
-        faceBytesLength = reader.read_int()
-        reader.advance() #10000000
-        reader.advance(faceBytesLength)
-        if i == faceStreamCount - 1:
-            reader.advance_to(0x4152)
-        else:
-            reader.advance_to(0x1415202)
-        
-        reader.advance(-faceBytesLength)
-        faceStart = reader.pos()
-        print('|\tFace Start : 0x' + to_hex(faceStart))
-        faces = []
-        for j in range(0, faceCount):
-            faces.append(reader.read_short())
-            
-        faceStreams.append({'faces':faces, 'start':faceStart})
-        #reader += faceBytesLength
-    print("read faces")
-    reader.advance() #52410000
-    renderingDataCount = reader.read_int()
-    print("rendering data count :" + str(renderingDataCount))
-    for i in range(0, renderingDataCount):
-        reader.advance(1) #03
-        cullNodeName = reader.read_string()
-        common = reader.read_int() #52410200
-        if(common == 0x4152):
-            reader.advance(0x58)
-            ff_count1 = reader.read_int()
-            reader.advance(ff_count1 + 4)
-            break
-        
-        reader.advance() #52410000
-        modelName = reader.read_string()
-        reader.advance() #52410000
-        unknownCount2 = reader.read_int()
-        for j in range(0, unknownCount2):
-            unknownRenderData1 = reader.read_int()
-            unknownRenderData2 = reader.read_int()
-        
-        reader.advance() #FFFFFFFF
-        reader.advance(0x3c)
-
-        ff_count = reader.read_int()
-        reader.advance(ff_count+4)
-        reader.advance() #52410000
-        reader.advance() #00000000
-        reader.advance() #52410000
-        reader.advance() #00000000
-    print("read rendering data")
-    reader.advance() #52410000
-    reader.advance() #00000000
-    reader.advance() #52410000
-    reader.advance() #00000000
-    reader.advance() #52410000
-    unknownCount3 = reader.read_int() #52410000
-    reader.advance_to(0x14152)
-    reader.advance(-4)
-    meshCount = reader.read_int()
-    print(str(meshCount)+" meshes")
-    
-    #mainCollection = bpy.data.collections.new(filepath.split('\\')[-1].split('.')[0])
-    parentObject = bpy.data.objects.new(filepath.split('\\')[-1].split('.')[0], None)
-    
-    parentObject.empty_display_size = 2
-    parentObject.empty_display_type = 'PLAIN_AXES'
-    
-    bpy.context.collection.objects.link(parentObject)
-    
-    objectGroups = {}
-    for i in range(0, meshCount):
-        print('Mesh ' + str(i))
-        reader.advance() # 52410100
-        meshUnknown1 = reader.read_int()
-        meshIndex = reader.read_int()
-        faceType = reader.read_int()
-        faceStreamIndex = reader.read_int()
-        meshObjectIndex = reader.read_short()
-        meshUnknown5 = reader.read_short()
-        
-        reader.advance() #52410000
-        meshUnknown6 = reader.read_int()
-        meshUnknown7 = reader.read_int()
-        
-        reader.advance() #52410000
-        meshUnknown8 = reader.read_int()
-        meshUnknown9 = reader.read_int()
-        
-        reader.advance() #52410000
-        reader.advance() #01000000
-        reader.advance() #05000000
-        reader.advance() #00000000
-        reader.advance() #00000000
-        reader.advance() #01000000
-        reader.advance() #00000000
-        reader.advance() #52410000
-        meshData1Count = reader.read_int()
-        
-        meshData1 = []
-        for j in range(0, meshData1Count):
-            reader.advance() #52410000
-            faceOffset = reader.read_int()
-            faceCount = reader.read_int()
-            extraVertOffset = reader.read_int()
-            vertexCount = reader.read_int()
-
-            meshData1.append((faceOffset, faceCount, extraVertOffset, vertexCount))
-        reader.advance() #52410000
-        meshData2Count = reader.read_int()
-        meshData2 = []
-        for j in range(0, meshData2Count):
-            reader.advance() #52410000
-            unknownMeshDat1 = reader.read_int()
-            unknownMeshDat2 = reader.read_int()
-            vertexOffset = reader.read_int()
-            unknownMeshDat4 = reader.read_int()
-            reader.advance() #52410000
-            unknownMeshDat5 = reader.read_int()
-            unknownMeshDat6 = reader.read_int()
-            meshData2.append((unknownMeshDat1, unknownMeshDat2, vertexOffset, unknownMeshDat4))
-        
-        k = 0
-        
-        definition = meshGroupDefinitions[meshIndex]
-        group = vertStreams[definition]
-        offset = meshData1[k][2]
-        vertStart = int(meshData2[0][2]/group['len']) + offset
-        vertCount = meshData1[k][3]
-        vertEnd = vertStart + vertCount
-        
-        faceStart = meshData1[k][0]
-        faceEnd = faceStart + meshData1[k][1]
-        
-        #print('|\tDefinition : ' + definition)
-        #print('|\tVert Start : 0x' + to_hex(group['start'] + vertStart * group['len']))
-        #print('|\tVert Count : ' + str(vertCount))
-        #print('|\tFace Start : 0x' + to_hex(faceStreams[faceStreamIndex]['start'] + faceStart * 2))
-        #print('|\tFace Count : ' + str(meshData1[k][1]))
-        #print('|\tVert Pos Type : ' + str(len(group['verts'][0][0])))
-        #print('|\tVert Data Length : ' + str(group['len']))
-        
-        if meshObjectIndex not in objectGroups:
-            objectGroups[meshObjectIndex] = bmesh.new()
-        
-        bm = objectGroups[meshObjectIndex]
-        vertdata = group['data']
-        
-        vs = group['verts']
+        fc = bm.verts.layers.float_color.verify()
         
         verts = []
-        uvs = []
-        weights = None
-        colors = []
         
-        for j in range(2, len(vertdata)):
-            dat = vertdata[j]
-            if dat['type'] == 0xa:
-                weights = []
-            elif not vertdata[j-1]['type'] == 0xa:
-                uvs.append([])
-                
+        vert_offset = mesh['data1'][0]['vert_offset']
+        vert_start = int(mesh['data2'][0]['vOffset']/vert_stream['bytes']) + vert_offset
+        vert_count = mesh['data1'][0]['vert_count']
+        vert_end = vert_start + vert_count
         
-        identity_layer = bm.verts.layers.int.verify()
-        
-        
-        uv_type = group['data'][2]['type']
-        print((faceStart, faceEnd-faceStart))
-        for l in range(vertStart,vertEnd):
-            vertDat = vs[l]
-            pos = vertDat[0]
-            normal = vertDat[1]
-            uv = vertDat[2]
+        for vertex_data in vert_stream['verticies'][vert_start:vert_end]:
             
-            vert = bm.verts.new((pos[0], pos[2], pos[1]))
-            vert.normal = (normal[0], normal[2], normal[1])
-            vert[identity_layer] = i
+            vert = bm.verts.new(vertex_data[0][0:3])
+            if(len(vertex_data) > 1):
+                vert.normal = vertex_data[1][0:3]
+            for i,fc in enumerate(vertex_colors):
+                vert[fc] = vertex_data[i+2]
             
             verts.append(vert)
-            
-            if uv_type == 9:
-                uvs.append((uv[0], uv[1], uv[2], uv[3]))
-            elif uv_type == 8:
-                uvs.append((uv[0], uv[1]))
-            
-            for id in range(2, len(vertdata)):
-                dat = vertdata[id]
-                  
-                
-            if len(vertDat) > 3:
-                col = vertDat[3]
-                if len(col) == 1:
-                    colors.append((col[0], 0, 0, 0))
-                elif len(col) == 2:
-                    colors.append((col[0], col[1], 0, 0))
-                elif len(col) == 3:
-                    colors.append((col[0], col[1], col[2], 0))
-                elif len(col) == 4:
-                    colors.append((col[0], col[1], col[2], col[3]))
-                    
-        
-        faces = []
-        if faceType == 0:
-            for j in range(faceStart, faceEnd, 3):
-                i1 = faceStreams[faceStreamIndex]['faces'][j] - offset
-                i2 = faceStreams[faceStreamIndex]['faces'][j+1] - offset
-                i3 = faceStreams[faceStreamIndex]['faces'][j+2] - offset
-                try:
-                    faces.append(bm.faces.new((verts[i1], verts[i3], verts[i2])))
-                except:
-                    print("failed face")
-        elif faceType == 1:
-            for j in range(faceStart, faceEnd-2):
-                i1 = faceStreams[faceStreamIndex]['faces'][j] - offset
-                i2 = faceStreams[faceStreamIndex]['faces'][j+1] - offset
-                i3 = faceStreams[faceStreamIndex]['faces'][j+2] - offset
-                try:
-                    if i1 == i2 or i2 == i3 or i3 == i1:
-                        continue
-                    if (j-faceStart)%2 == 1:
-                        faces.append(bm.faces.new((verts[i1], verts[i2], verts[i3])))
-                    else:
-                        faces.append(bm.faces.new((verts[i1], verts[i3], verts[i2])))
-                except:
-                    print("failed face")
-        
-        bm.verts.ensure_lookup_table()
-        bm.faces.ensure_lookup_table()
-        
-        
-        if uv_type == 8 or uv_type == 9:
-            uv_layer_1 = bm.loops.layers.uv.get('UV1', None)
-            if uv_layer_1 == None:
-                uv_layer_1 = bm.loops.layers.uv.new('UV1')
-                
-        if uv_type == 9:
-            uv_layer_2 = bm.loops.layers.uv.get('UV2', None)
-            if uv_layer_2 == None:
-                uv_layer_2 = bm.loops.layers.uv.new('UV2')
-                
-            
-        color_layer = bm.loops.layers.color.verify()
-        
-        for face in faces:
-            for t, loop in enumerate(face.loops):
-                vertIndex = verts.index(loop.vert)
-                
-                if uv_type == 8 or uv_type == 9:
-                    uv = uvs[vertIndex]
-                    
-                    #loop[uv_layer_1].uv[0] = uv[0]
-                    #loop[uv_layer_1].uv[1] = 1-uv[1]
-                
-                if uv_type == 9:
-                    uv = uvs[vertIndex]
-                    
-                    #loop[uv_layer_2].uv[0] = uv[2]
-                    #loop[uv_layer_2].uv[1] = 1-uv[3]
-                    
-                if len(vs[l]) > 3:
-                    color = colors[vertIndex]
-                    loop[color_layer] = color
-        
-    # would normally load the data here
-    for objectIndex in range(0, len(object_dats)):
-        dat = object_dats[objectIndex]
-        object = None
-        
-        if objectIndex in objectGroups:
-            bm = objectGroups[objectIndex]
-                    
-            objectMesh = bpy.data.meshes.new(dat['name'])
-            
-            bm.to_mesh(objectMesh)
-            objectMesh.update()
-            object = bpy.data.objects.new(dat['name'], objectMesh)
-        else:
-            object = bpy.data.objects.new(dat['name'], None)
-            object.empty_display_size = 0.2
-            object.empty_display_type = 'CUBE'
-            
-        object.location = dat['matrix']['position']
-        
-        object.parent = parentObject
-        
-        bpy.context.collection.objects.link(object)
-    return {'FINISHED'}
 
-class ImportSomeData(Operator, ImportHelper):
+
+        faces = []
+        
+        face_start = mesh['data1'][0]['face_offset']
+        face_count = mesh['data1'][0]['face_count'] 
+        
+        
+        face_end = face_start + face_count 
+        
+        stream_faces = face_stream['faces']
+        
+        desired_material = materials[mesh["material_index"]]
+        if not desired_material in object['materials']:
+            object['materials'].append(desired_material)
+            material_index = len(object['materials']) - 1
+        else:
+            material_index = object['materials'].index(desired_material)
+        
+        uv_1 = bm.loops.layers.uv.get('UV1', None)
+        if uv_1 == None:
+            uv_1 = bm.loops.layers.uv.new('UV1')
+        
+        uv_2 = bm.loops.layers.uv.get('UV2', None)
+        if uv_2 == None:
+            uv_2 = bm.loops.layers.uv.new('UV2')
+        
+        def create_face(v1, v2, v3):
+            try:
+                new_face = bm.faces.new([v1, v2, v3])
+                new_face.material_index = material_index
+            
+                if len(vertex_colors) > 0:  
+                    for loop in new_face.loops:
+                        uv = loop.vert[vertex_colors[0]]
+                        loop[uv_1].uv[0] = uv[0]
+                        loop[uv_1].uv[1] = 1-uv[2]
+                        loop[uv_2].uv[0] = uv[1]
+                        loop[uv_2].uv[1] = 1-uv[3]
+            
+                faces.append(new_face)
+            except:
+                print("Duplicate face:")
+                #print("|\tMeshDefinition: {0}".format(string_definition))
+                #print("|\tMeshIndex: {0}".format(meshes.index(mesh)))
+                #print("|\tVertStream: {0}".format(vertex_streams.index(vert_stream)))
+                #print("|\tFaceStream: {0}".format(face_streams.index(face_stream)))
+                #print("|\tV1: {0}".format(v1.co))
+                #print("|\tV2: {0}".format(v2.co))
+                #print("|\tV3: {0}".format(v3.co))
+                
+        if mesh['face_type'] == 0:
+            for i in range(face_start, face_end, 3):
+                i1 = stream_faces[i] - vert_offset
+                i2 = stream_faces[i+1] - vert_offset
+                i3 = stream_faces[i+2] - vert_offset
+                
+                create_face(verts[i1], verts[i2], verts[i3])
+        if mesh['face_type'] == 1:
+            for i in range(face_start, face_end - 2):
+                i1 = stream_faces[i] - vert_offset
+                i2 = stream_faces[i+1] - vert_offset
+                i3 = stream_faces[i+2] - vert_offset
+                
+                if i1 == i2 or i2 == i3 or i3 == i1:
+                    continue
+                if (i-face_start)%2 == 1:
+                    create_face(verts[i1], verts[i2], verts[i3])
+                else:
+                    create_face(verts[i1], verts[i3], verts[i2])
+                
+    
+    linked_objects = []
+    for i, object in enumerate(objects):
+        element = model['elements'][i]
+        
+        if not object == None:
+            bm = object['bm']
+            
+            object_mesh = bpy.data.meshes.new(element['name'])
+            
+            bm.to_mesh(object_mesh)
+            object_mesh.update()
+            
+            linked_object = bpy.data.objects.new(element['name'], object_mesh)
+            [linked_object.data.materials.append(mat) for mat in object['materials']]
+            bm.free()
+        else:
+            linked_object = bpy.data.objects.new(element['name'], None)
+            linked_object.empty_display_size = 0.2
+            linked_object.empty_display_type = 'SPHERE'
+        
+        linked_object.location = element['matrix']['position']
+        
+        if 'parent' in element:
+            linked_object.parent = linked_objects[element['parent']]
+            linked_object.matrix_parent_inverse = linked_object.parent.matrix_world.inverted()
+        
+        bpy.context.collection.objects.link(linked_object)
+        linked_objects.append(linked_object)
+
+#---------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
+
+class ImportCPModelData(Operator, ImportHelper):
     """This appears in the tooltip of the operator and in the generated docs"""
-    bl_idname = "import_test.some_data"
-    bl_label = "Import Some Data"
+    bl_idname = "import_cpmodel.data"
+    bl_label = "Import CPModel"
 
     # ImportHelper mixin class uses this
     filename_ext = ".model"
@@ -890,42 +1066,28 @@ class ImportSomeData(Operator, ImportHelper):
         maxlen=255,  # Max internal buffer length, longer would be clamped.
     )
 
-    # List of operator properties, the attributes will be assigned
-    # to the class instance from the operator settings before calling.
-    use_setting: BoolProperty(
-        name="Example Boolean",
-        description="Example Tooltip",
-        default=True,
-    )
-
-    type: EnumProperty(
-        name="Example Enum",
-        description="Choose between two items",
-        items=(
-            ('OPT_A', "First Option", "Description one"),
-            ('OPT_B', "Second Option", "Description two"),
-        ),
-        default='OPT_A',
+    swap_faces: BoolProperty(
+        name="Swap Faces",
+        description="Some models have faces stored strangely. If the import doesent work the first time, try this.",
+        default=False,
     )
 
     def execute(self, context):
-        return read_cpmodel_data(self, context, self.filepath, self.use_setting)
+        return import_cpmodel(self, context, self.filepath, self.swap_faces)
 
 def menu_func_import(self, context):
-    self.layout.operator(ImportSomeData.bl_idname, text="Import CPModel (.model)")
+    self.layout.operator(ImportCPModelData.bl_idname, text="Import CPModel (.model)")
 
 
 def register():
-    bpy.utils.register_class(ImportSomeData)
+    bpy.utils.register_class(ImportCPModelData)
     #bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
 
 
 def unregister():
-    bpy.utils.unregister_class(ImportSomeData)
-    #bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
+    bpy.utils.unregister_class(ImportCPModelData)
+    bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
 
 if __name__ == "__main__":
     register()
-
-    # test call
-    bpy.ops.import_test.some_data('INVOKE_DEFAULT')
+    bpy.ops.import_cpmodel.data('INVOKE_DEFAULT')
