@@ -836,7 +836,7 @@ def create_model_from_data(model, swap_faces):
     directory = bpy.path.abspath("//")
     saved = directory != ''
     if not saved:
-        self.report({'WARNING'}, "The blend file is not saved. Textures will not be downloaded.")
+        pass#self.report({'WARNING'}, "The blend file is not saved. Textures will not be downloaded.")
     elif not os.path.exists(directory+"textures"):
         os.makedirs(directory+"textures")
     
